@@ -1,4 +1,4 @@
-# LAMPS Replica
+# LAMPS
 
 This workspace contains a practical replica of the LAMPS pipeline from the JSS paper and the author's `lamps-jss` repository. It keeps the four-agent structure while replacing local LLaMA 3 with an optional LLM API.
 

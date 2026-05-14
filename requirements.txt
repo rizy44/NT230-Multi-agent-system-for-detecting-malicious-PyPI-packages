@@ -1,0 +1,12 @@
+crewai
+openai
+python-dotenv
+requests
+tqdm
+pandas
+scikit-learn
+torch
+transformers
+accelerate
+pytest
+mcp
