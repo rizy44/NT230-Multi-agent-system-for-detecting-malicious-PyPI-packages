@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from typing import Any
 
 from lamps.core.schemas import FileClassification
 
@@ -98,6 +99,46 @@ class CodeBERTClassifier:
         )
 
 
+class TfidfClassifier:
+    mode = "tfidf"
+
+    def __init__(self, model_path: str | Path):
+        self.model_path = Path(model_path)
+        self._model: Any | None = None
+
+    @property
+    def available(self) -> bool:
+        return self.model_path.exists()
+
+    def _load(self):
+        if self._model is not None:
+            return self._model
+        if not self.available:
+            raise FileNotFoundError(f"TF-IDF checkpoint is not valid or complete: {self.model_path}")
+        try:
+            import joblib
+        except Exception as exc:
+            raise RuntimeError("joblib is required for TF-IDF mode.") from exc
+        self._model = joblib.load(self.model_path)
+        return self._model
+
+    def classify_code(self, code: str, path: str) -> FileClassification:
+        model = self._load()
+        prediction = int(model.predict([code])[0])
+        if hasattr(model, "predict_proba"):
+            probability = float(model.predict_proba([code])[0][prediction])
+        else:
+            probability = 1.0
+        label = "malicious" if prediction == 1 else "benign"
+        return FileClassification(
+            path=path,
+            label=label,
+            score=probability,
+            signals=[],
+            classifier_mode=self.mode,
+        )
+
+
 def _normalize_model_label(label: str) -> str:
     cleaned = label.lower().strip()
     if cleaned in {"malicious", "label_1", "1", "true"}:
@@ -106,16 +147,23 @@ def _normalize_model_label(label: str) -> str:
 
 
 class ClassifierFactory:
-    def __init__(self, model_path: str | Path):
-        self.model_path = Path(model_path)
+    def __init__(self, codebert_model_path: str | Path, tfidf_model_path: str | Path | None = None):
+        self.codebert_model_path = Path(codebert_model_path)
+        self.tfidf_model_path = Path(tfidf_model_path) if tfidf_model_path else None
 
     def create(self, mode: str):
         if mode == "heuristic":
             return HeuristicClassifier()
+        if mode == "tfidf":
+            if not self.tfidf_model_path:
+                raise FileNotFoundError("TF-IDF model path is not configured.")
+            return TfidfClassifier(self.tfidf_model_path)
         if mode == "codebert":
-            return CodeBERTClassifier(self.model_path)
-        if mode == "auto":
-            if CodeBERTClassifier(self.model_path).available:
-                return CodeBERTClassifier(self.model_path)
+            return CodeBERTClassifier(self.codebert_model_path)
+        if mode in {"auto", "best"}:
+            if self.tfidf_model_path and TfidfClassifier(self.tfidf_model_path).available:
+                return TfidfClassifier(self.tfidf_model_path)
+            if CodeBERTClassifier(self.codebert_model_path).available:
+                return CodeBERTClassifier(self.codebert_model_path)
             return HeuristicClassifier()
         raise ValueError(f"Unsupported classifier mode: {mode}")

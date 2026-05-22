@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-VALID_CLASSIFIERS = {"auto", "codebert", "heuristic"}
+VALID_CLASSIFIERS = {"auto", "best", "codebert", "tfidf", "heuristic"}
 
 
 def validate_classifier(classifier: str) -> str:
@@ -49,6 +49,10 @@ class EvaluateDatasetArgs:
     code_column: str = "Setup.py"
     label_column: str | None = None
     max_samples: int = 50
+    classifier: str = "heuristic"
+
+    def __post_init__(self) -> None:
+        self.classifier = validate_classifier(self.classifier)
 
 
 @dataclass(slots=True)
@@ -58,3 +62,12 @@ class TrainCodeBERTArgs:
     test_path: str = "CodeBERT_Classifier/data/test.jsonl"
     output_dir: str = "CodeBERT_Classifier/checkpoint"
 
+
+@dataclass(slots=True)
+class TrainTfidfArgs:
+    dataset_path: str = "dataset/D2-6000snippets.csv"
+    text_column: str = "Setup.py"
+    label_column: str | None = None
+    validation_dataset: str | None = None
+    output_path: str = "models/tfidf-malware-detector/model.joblib"
+    max_features: int = 50000

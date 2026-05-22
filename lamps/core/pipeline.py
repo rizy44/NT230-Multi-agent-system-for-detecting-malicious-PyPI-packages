@@ -19,7 +19,7 @@ class LAMPSPipeline:
         self.llm_client = LLMClient(settings.llm_api_key, settings.llm_api_base, settings.llm_model)
         self.fetcher = FetcherAgent(llm_client=self.llm_client)
         self.extractor = ExtractorAgent()
-        classifier = ClassifierFactory(settings.codebert_model_path).create(classifier_mode)
+        classifier = ClassifierFactory(settings.codebert_model_path, settings.tfidf_model_path).create(classifier_mode)
         self.classifier = ClassifierAgent(classifier)
         self.verdict = VerdictAgent(self.llm_client)
         self.classifier_mode = getattr(classifier, "mode", classifier_mode)

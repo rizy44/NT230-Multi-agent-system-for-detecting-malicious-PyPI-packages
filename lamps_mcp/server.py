@@ -12,6 +12,7 @@ from lamps_mcp.tools import (
     scan_archive_tool,
     scan_package_tool,
     train_codebert_tool,
+    train_tfidf_tool,
 )
 
 
@@ -68,13 +69,15 @@ def evaluate_dataset(
     code_column: str = "Setup.py",
     label_column: str | None = None,
     max_samples: int = 50,
+    classifier: str = "heuristic",
 ) -> dict[str, Any]:
-    """Evaluate the heuristic classifier on a CSV dataset."""
+    """Evaluate a classifier on a CSV dataset."""
     return evaluate_dataset_tool(
         dataset_path=dataset_path,
         code_column=code_column,
         label_column=label_column,
         max_samples=max_samples,
+        classifier=classifier,
     )
 
 
@@ -91,6 +94,26 @@ def train_codebert(
         val_path=val_path,
         test_path=test_path,
         output_dir=output_dir,
+    )
+
+
+@mcp.tool()
+def train_tfidf(
+    dataset_path: str = "dataset/D2-6000snippets.csv",
+    text_column: str = "Setup.py",
+    label_column: str | None = None,
+    validation_dataset: str | None = None,
+    output_path: str = "models/tfidf-malware-detector/model.joblib",
+    max_features: int = 50000,
+) -> dict[str, Any]:
+    """Train a TF-IDF + Logistic Regression classifier from a labeled CSV dataset."""
+    return train_tfidf_tool(
+        dataset_path=dataset_path,
+        text_column=text_column,
+        label_column=label_column,
+        validation_dataset=validation_dataset,
+        output_path=output_path,
+        max_features=max_features,
     )
 
 
