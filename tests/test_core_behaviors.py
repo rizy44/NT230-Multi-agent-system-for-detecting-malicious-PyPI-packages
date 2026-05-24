@@ -122,6 +122,26 @@ def test_classifier_factory_selects_tfidf_when_requested(tmp_path):
     assert isinstance(classifier, TfidfClassifier)
 
 
+def test_codebert_classifier_uses_raw_code_for_inference(tmp_path):
+    from lamps.core.codebert import CodeBERTClassifier
+
+    captured_inputs = []
+
+    def fake_pipeline(value):
+        captured_inputs.append(value)
+        return [{"label": "LABEL_1", "score": 0.97}]
+
+    classifier = CodeBERTClassifier(tmp_path / "checkpoint", block_size=2)
+    classifier._pipeline = fake_pipeline
+    code = "print('a')\nprint('b')\nprint('c')"
+
+    result = classifier.classify_code(code, "setup.py")
+
+    assert result.label == "malicious"
+    assert captured_inputs == [code[:8]]
+    assert "You are a security expert" not in captured_inputs[0]
+
+
 def test_verdict_policy_marks_package_malicious_if_any_file_is_malicious():
     from lamps.agents.verdict import VerdictAgent
     from lamps.core.schemas import FileClassification

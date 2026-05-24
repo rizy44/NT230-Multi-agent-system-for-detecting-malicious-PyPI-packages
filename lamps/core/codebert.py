@@ -83,12 +83,7 @@ class CodeBERTClassifier:
 
     def classify_code(self, code: str, path: str) -> FileClassification:
         pipe = self._load()
-        prompt = (
-            "You are a security expert. Classify the following Python code as either malicious or benign.\n\n"
-            "Malicious code may include obfuscation, data exfiltration, network exploitation, or hidden behavior.\n\n"
-            f"Code:\n{code[: self.block_size * 4]}"
-        )
-        raw = pipe(prompt)[0]
+        raw = pipe(code[: self.block_size * 4])[0]
         label = _normalize_model_label(str(raw["label"]))
         return FileClassification(
             path=path,
