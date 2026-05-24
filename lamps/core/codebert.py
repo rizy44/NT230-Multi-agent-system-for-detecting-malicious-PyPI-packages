@@ -83,7 +83,11 @@ class CodeBERTClassifier:
 
     def classify_code(self, code: str, path: str) -> FileClassification:
         pipe = self._load()
-        raw = pipe(code[: self.block_size * 4])[0]
+        raw = pipe(
+            code,
+            truncation=True,
+            max_length=min(self.block_size, 512),
+        )[0]
         label = _normalize_model_label(str(raw["label"]))
         return FileClassification(
             path=path,
