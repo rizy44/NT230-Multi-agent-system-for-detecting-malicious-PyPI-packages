@@ -61,17 +61,17 @@ class VerdictAgent:
             f"Policy verdict: {verdict}\n"
             f"Analyzed files: {files_analyzed}\n"
             f"Malicious file summary:\n{summary}\n\n"
-            "Return exactly this Vietnamese structure:\n"
-            "Lỗi gì: <malicious behavior detected>.\n"
-            "Ở đâu: <file path and score/signals>.\n"
-            "Hậu quả khi cài package: <impact during install/import>.\n"
-            "Keep each line short. Do not change the policy verdict."
+            "Return exactly this English structure:\n"
+            "Issue: <specific suspicious behavior or model finding; mention subprocess, PowerShell, encoded command, download/execute only if present in signals or summary>.\n"
+            "Location: <file path, classifier confidence, and signals if available>.\n"
+            "Install impact: <what could happen when setup.py/install-time code runs; be concrete but do not invent URLs or payloads>.\n"
+            "Keep it to 3 lines. Do not change the policy verdict."
         )
         return self.llm_client.complete_or_default(
-            "You are the Verdict Agent in LAMPS. Produce concise structured Vietnamese security findings.",
+            "You are the Verdict Agent in LAMPS. Produce concise, evidence-based English security findings.",
             prompt,
             default,
-            max_tokens=160,
+            max_tokens=190,
         )
 
 
@@ -82,14 +82,14 @@ def _deterministic_rationale(
 ) -> str:
     if verdict == "benign":
         return (
-            "Lỗi gì: Chưa phát hiện hành vi độc hại trong các file đã phân tích.\n"
-            f"Ở đâu: {files_analyzed} file Python được phân loại benign.\n"
-            "Hậu quả khi cài package: Chưa có bằng chứng tĩnh cho thấy package thực thi hành vi nguy hiểm."
+            "Issue: No malicious behavior was detected in the analyzed Python files.\n"
+            f"Location: {files_analyzed} Python file(s) were classified as benign.\n"
+            "Install impact: Static analysis found no evidence of dangerous install-time or import-time behavior."
         )
     top = malicious[0]
     signals = ", ".join(top.signals) if top.signals else "model confidence"
     return (
-        "Lỗi gì: File bị phân loại là malicious dựa trên tín hiệu hoặc xác suất mô hình.\n"
-        f"Ở đâu: {top.path} score={top.score:.2f} signals={signals}.\n"
-        "Hậu quả khi cài package: Package có thể thực thi mã nguy hiểm trong quá trình cài đặt hoặc khi được import."
+        "Issue: A Python file was classified as malicious based on static signals or model confidence.\n"
+        f"Location: {top.path} score={top.score:.2f} signals={signals}.\n"
+        "Install impact: The package may execute unsafe code during installation or import, potentially compromising the host environment."
     )

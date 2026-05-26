@@ -156,9 +156,9 @@ def test_verdict_policy_marks_package_malicious_if_any_file_is_malicious():
     assert report.verdict == "malicious"
     assert report.malicious_files == ["setup.py"]
     assert "setup.py" in report.rationale
-    assert "Lỗi gì:" in report.rationale
-    assert "Ở đâu:" in report.rationale
-    assert "Hậu quả khi cài package:" in report.rationale
+    assert "Issue:" in report.rationale
+    assert "Location:" in report.rationale
+    assert "Install impact:" in report.rationale
 
 
 def test_report_serializes_required_json_fields():
