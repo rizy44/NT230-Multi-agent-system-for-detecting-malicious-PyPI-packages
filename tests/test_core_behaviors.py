@@ -236,6 +236,50 @@ def test_pipeline_scans_local_archive_with_heuristic_classifier(tmp_path, monkey
     assert (tmp_path / "reports" / "demo-report.json").exists()
 
 
+def test_pipeline_records_llm_assisted_agent_reasoning(tmp_path, monkeypatch):
+    from lamps.core.config import Settings
+    from lamps.core.pipeline import LAMPSPipeline
+
+    archive_path = tmp_path / "demo.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar:
+        code = b"print('safe')"
+        info = tarfile.TarInfo("demo/setup.py")
+        info.size = len(code)
+        tar.addfile(info, io.BytesIO(code))
+
+    settings = Settings(
+        llm_api_key="fake-key",
+        llm_api_base="https://api.example.test/v1",
+        llm_model="fake-model",
+        codebert_model_path=tmp_path / "missing-model",
+        tfidf_model_path=tmp_path / "missing-tfidf" / "model.joblib",
+        download_dir=tmp_path / "downloads",
+        extract_dir=tmp_path / "extracted",
+        report_dir=tmp_path / "reports",
+    )
+    pipeline = LAMPSPipeline(settings, classifier_mode="heuristic")
+
+    def fake_complete_or_default(system, user, default):
+        if "Fetcher Agent" in system:
+            return "LLM fetcher reasoning."
+        if "Extractor Agent" in system:
+            return "LLM extractor reasoning."
+        if "Verdict Agent" in system:
+            return "LLM verdict rationale."
+        return default
+
+    pipeline.llm_client.complete_or_default = fake_complete_or_default
+
+    report = pipeline.scan_archive(archive_path, package="demo")
+
+    assert report.agent_trace["fetcher"]["llm_reasoning"]["llm_assisted"] is True
+    assert report.agent_trace["fetcher"]["llm_reasoning"]["summary"] == "LLM fetcher reasoning."
+    assert report.agent_trace["extractor"]["llm_reasoning"]["summary"] == "LLM extractor reasoning."
+    assert report.agent_trace["verdict"]["llm_assisted"] is True
+    assert report.agent_trace["verdict"]["rationale_source"] == "llm"
+    assert report.rationale == "LLM verdict rationale."
+
+
 def test_csv_to_jsonl_auto_detects_label_column(tmp_path):
     from lamps.evaluation.prepare_dataset import csv_to_jsonl
 

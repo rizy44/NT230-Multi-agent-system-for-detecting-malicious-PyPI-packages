@@ -9,6 +9,10 @@ class VerdictAgent:
 
     def __init__(self, llm_client: LLMClient | None = None):
         self.llm_client = llm_client
+        self.last_reasoning: dict[str, object] = {
+            "llm_assisted": bool(llm_client and llm_client.available),
+            "policy": "package is malicious if any analyzed Python file is malicious",
+        }
 
     def decide(
         self,
@@ -21,6 +25,12 @@ class VerdictAgent:
         verdict = "malicious" if malicious else "benign"
         malicious_files = [result.path for result in malicious]
         rationale = self._build_rationale(package, verdict, malicious, len(results))
+        self.last_reasoning = {
+            "llm_assisted": bool(self.llm_client and self.llm_client.available),
+            "policy": "package is malicious if any analyzed Python file is malicious",
+            "malicious_file_count": len(malicious),
+            "rationale_source": "llm" if self.llm_client and self.llm_client.available else "deterministic",
+        }
         return ScanReport(
             package=package,
             version=version,

@@ -18,7 +18,7 @@ class LAMPSPipeline:
         self.settings = settings
         self.llm_client = LLMClient(settings.llm_api_key, settings.llm_api_base, settings.llm_model)
         self.fetcher = FetcherAgent(llm_client=self.llm_client)
-        self.extractor = ExtractorAgent()
+        self.extractor = ExtractorAgent(llm_client=self.llm_client)
         classifier = ClassifierFactory(settings.codebert_model_path, settings.tfidf_model_path).create(classifier_mode)
         self.classifier = ClassifierAgent(classifier)
         self.verdict = VerdictAgent(self.llm_client)
@@ -43,11 +43,13 @@ class LAMPSPipeline:
                 "url": source.url,
                 "source_type": source.source_type,
                 "archive_path": source.archive_path,
+                "llm_reasoning": self.fetcher.last_reasoning,
             },
             "extractor": {
                 "extract_dir": extraction.extract_dir,
                 "python_files": [p.as_posix() for p in extraction.python_files],
                 "skipped_files": extraction.skipped_files,
+                "llm_reasoning": self.extractor.last_reasoning,
             },
             "classifier": {
                 "mode": self.classifier_mode,
@@ -58,6 +60,7 @@ class LAMPSPipeline:
             },
         }
         report = self.verdict.decide(source.package, source.version, classifications, trace)
+        report.agent_trace["verdict"].update(self.verdict.last_reasoning)
         self._write_report(report)
         return report
 
