@@ -23,15 +23,16 @@ class FetcherAgent:
         if not self.llm_client or not self.llm_client.available:
             return cleaned
         return self.llm_client.complete_or_default(
-            "You normalize PyPI package names. Return only the package name.",
+            "You normalize PyPI package names. Return only the package name. No explanation.",
             cleaned,
             cleaned,
+            max_tokens=20,
         ).split()[0].strip("`'\"")
 
     def fetch(self, package: str, download_dir: str | Path) -> PackageSource:
         normalized = self.normalize_package_name(package)
         plan = self._llm_note(
-            "You are the Fetcher Agent in LAMPS. Explain the safe retrieval plan in one concise sentence.",
+            "You are the Fetcher Agent in LAMPS. Return one short sentence, max 25 words. No bullets.",
             f"Requested package: {package}\nNormalized package: {normalized}\nDownload directory: {download_dir}",
             "Resolve package metadata through PyPI, prefer a source archive, download it locally, and never install or execute package code.",
         )
@@ -54,7 +55,7 @@ class FetcherAgent:
 
     def from_archive(self, archive_path: str | Path, package: str = "local-archive") -> PackageSource:
         summary = self._llm_note(
-            "You are the Fetcher Agent in LAMPS. Explain how a local archive should be handled safely.",
+            "You are the Fetcher Agent in LAMPS. Return one short sentence, max 25 words. No bullets.",
             f"Package label: {package}\nArchive path: {archive_path}",
             "Use the provided local archive as the package source and keep analysis static without installing or executing code.",
         )
@@ -74,4 +75,4 @@ class FetcherAgent:
     def _llm_note(self, system: str, user: str, default: str) -> str:
         if not self.llm_client or not self.llm_client.available:
             return default
-        return self.llm_client.complete_or_default(system, user, default)
+        return self.llm_client.complete_or_default(system, user, default, max_tokens=60)

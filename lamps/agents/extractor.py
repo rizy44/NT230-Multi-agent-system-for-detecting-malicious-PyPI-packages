@@ -22,7 +22,7 @@ class ExtractorAgent:
         selected = [path.as_posix() for path in result.python_files]
         skipped = result.skipped_files
         summary = self._llm_note(
-            "You are the Extractor Agent in LAMPS. Explain why these files are selected for static malware analysis. Do not request execution.",
+            "You are the Extractor Agent in LAMPS. Return one short sentence, max 30 words. No bullets. Do not request execution.",
             (
                 f"Archive: {archive_path}\n"
                 f"Selected Python files ({len(selected)}): {selected[:30]}\n"
@@ -44,4 +44,4 @@ class ExtractorAgent:
     def _llm_note(self, system: str, user: str, default: str) -> str:
         if not self.llm_client or not self.llm_client.available:
             return default
-        return self.llm_client.complete_or_default(system, user, default)
+        return self.llm_client.complete_or_default(system, user, default, max_tokens=70)

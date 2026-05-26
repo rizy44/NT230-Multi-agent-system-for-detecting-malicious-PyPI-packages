@@ -5,6 +5,7 @@ requests
 tqdm
 pandas
 scikit-learn
+joblib
 torch
 transformers
 accelerate

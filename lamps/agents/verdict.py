@@ -61,12 +61,17 @@ class VerdictAgent:
             f"Policy verdict: {verdict}\n"
             f"Analyzed files: {files_analyzed}\n"
             f"Malicious file summary:\n{summary}\n\n"
-            "Explain the verdict concisely. Do not change the policy verdict."
+            "Return exactly this Vietnamese structure:\n"
+            "Lỗi gì: <malicious behavior detected>.\n"
+            "Ở đâu: <file path and score/signals>.\n"
+            "Hậu quả khi cài package: <impact during install/import>.\n"
+            "Keep each line short. Do not change the policy verdict."
         )
         return self.llm_client.complete_or_default(
-            "You are the Verdict Agent in LAMPS. Explain static file-level malware findings.",
+            "You are the Verdict Agent in LAMPS. Produce concise structured Vietnamese security findings.",
             prompt,
             default,
+            max_tokens=160,
         )
 
 
@@ -76,9 +81,15 @@ def _deterministic_rationale(
     files_analyzed: int,
 ) -> str:
     if verdict == "benign":
-        return "All analyzed Python files were classified as benign."
-    details = []
-    for item in malicious:
-        signals = f" signals: {', '.join(item.signals)}" if item.signals else ""
-        details.append(f"{item.path} was classified as malicious ({item.score:.2f}).{signals}")
-    return f"{len(malicious)} of {files_analyzed} files were flagged. " + " ".join(details)
+        return (
+            "Lỗi gì: Chưa phát hiện hành vi độc hại trong các file đã phân tích.\n"
+            f"Ở đâu: {files_analyzed} file Python được phân loại benign.\n"
+            "Hậu quả khi cài package: Chưa có bằng chứng tĩnh cho thấy package thực thi hành vi nguy hiểm."
+        )
+    top = malicious[0]
+    signals = ", ".join(top.signals) if top.signals else "model confidence"
+    return (
+        "Lỗi gì: File bị phân loại là malicious dựa trên tín hiệu hoặc xác suất mô hình.\n"
+        f"Ở đâu: {top.path} score={top.score:.2f} signals={signals}.\n"
+        "Hậu quả khi cài package: Package có thể thực thi mã nguy hiểm trong quá trình cài đặt hoặc khi được import."
+    )

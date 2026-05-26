@@ -156,6 +156,9 @@ def test_verdict_policy_marks_package_malicious_if_any_file_is_malicious():
     assert report.verdict == "malicious"
     assert report.malicious_files == ["setup.py"]
     assert "setup.py" in report.rationale
+    assert "Lỗi gì:" in report.rationale
+    assert "Ở đâu:" in report.rationale
+    assert "Hậu quả khi cài package:" in report.rationale
 
 
 def test_report_serializes_required_json_fields():
@@ -259,7 +262,7 @@ def test_pipeline_records_llm_assisted_agent_reasoning(tmp_path, monkeypatch):
     )
     pipeline = LAMPSPipeline(settings, classifier_mode="heuristic")
 
-    def fake_complete_or_default(system, user, default):
+    def fake_complete_or_default(system, user, default, max_tokens=120):
         if "Fetcher Agent" in system:
             return "LLM fetcher reasoning."
         if "Extractor Agent" in system:

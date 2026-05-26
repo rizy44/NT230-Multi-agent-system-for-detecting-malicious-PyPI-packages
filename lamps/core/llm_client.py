@@ -11,7 +11,7 @@ class LLMClient:
     def available(self) -> bool:
         return bool(self.api_key)
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, max_tokens: int = 120) -> str:
         if not self.api_key:
             raise RuntimeError("LLM_API_KEY is not configured.")
         try:
@@ -27,13 +27,14 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
             temperature=0.1,
+            max_tokens=max_tokens,
         )
         return response.choices[0].message.content or ""
 
-    def complete_or_default(self, system: str, user: str, default: str) -> str:
+    def complete_or_default(self, system: str, user: str, default: str, max_tokens: int = 120) -> str:
         if not self.available:
             return default
         try:
-            return self.complete(system, user).strip() or default
+            return self.complete(system, user, max_tokens=max_tokens).strip() or default
         except Exception:
             return default
